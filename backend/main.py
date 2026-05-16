@@ -2,8 +2,10 @@ from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
+from rag.retrieval import retrieve_context
+
 import requests
-import os
 import json
 
 app = FastAPI()
@@ -17,44 +19,45 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Message model
+class Message(BaseModel):
+    role: str
+    content: str
+
 # Request model
 class ChatRequest(BaseModel):
     message: str
+    history: list[Message]
 
 # Root route
 @app.get("/")
 async def root():
+
     return {
-        "message": "NOIR Atelier Backend Running"
+        "message": "NOIR Atelier AI Backend Running"
     }
-
-# Load business knowledge
-def load_knowledge():
-
-    knowledge = ""
-
-    folder = "knowledge"
-
-    if not os.path.exists(folder):
-        return "No knowledge folder found."
-
-    for filename in os.listdir(folder):
-
-        if filename.endswith(".txt"):
-
-            path = os.path.join(folder, filename)
-
-            with open(path, "r", encoding="utf-8") as file:
-                knowledge += file.read() + "\n\n"
-
-    return knowledge
 
 # Streaming chat route
 @app.post("/chat")
 async def chat(request: ChatRequest):
 
-    knowledge = load_knowledge()
+    # Retrieve semantic RAG context
+    knowledge = retrieve_context(
+        request.message
+    )
 
+    # Build conversation memory
+    conversation_history = ""
+
+    for msg in request.history:
+
+        role = msg.role.upper()
+
+        conversation_history += (
+            f"{role}: {msg.content}\n"
+        )
+
+    # Final AI prompt
     prompt = f"""
 You are the official AI strategic advisor
 of NOIR Atelier.
@@ -62,28 +65,49 @@ of NOIR Atelier.
 NOIR Atelier is a luxury Tehran-based
 interior architecture and smart-home studio.
 
-Business knowledge:
+You are speaking to:
+- luxury apartment owners
+- investors
+- architects
+- startup founders
+- premium clients
+
+Relevant business knowledge:
 {knowledge}
+
+Conversation history:
+{conversation_history}
 
 Your personality:
 - elegant
 - minimal
 - intelligent
+- strategic
+- emotionally refined
 - calm
-- premium
 - architectural
 
 Communication style:
-- refined
-- concise
-- emotionally intelligent
-- strategic
 - cinematic
+- premium
+- concise
+- insightful
+- sophisticated
 
-User question:
+Behavior rules:
+- Never sound generic
+- Maintain conversational continuity
+- Remember previous discussion context
+- Speak like a premium strategist
+- Prioritize emotional intelligence
+- Use retrieved knowledge naturally
+- Keep answers refined and thoughtful
+
+Current user message:
 {request.message}
 """
 
+    # Streaming generator
     def generate():
 
         response = requests.post(
