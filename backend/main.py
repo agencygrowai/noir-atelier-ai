@@ -1,8 +1,10 @@
 from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import requests
 import os
+import json
 
 app = FastAPI()
 
@@ -33,11 +35,9 @@ def load_knowledge():
 
     folder = "knowledge"
 
-    # Check if folder exists
     if not os.path.exists(folder):
         return "No knowledge folder found."
 
-    # Read all txt files
     for filename in os.listdir(folder):
 
         if filename.endswith(".txt"):
@@ -49,15 +49,13 @@ def load_knowledge():
 
     return knowledge
 
-# Chat route
+# Streaming chat route
 @app.post("/chat")
 async def chat(request: ChatRequest):
 
-    try:
+    knowledge = load_knowledge()
 
-        knowledge = load_knowledge()
-
-        prompt = f"""
+    prompt = f"""
 You are the official AI strategic advisor
 of NOIR Atelier.
 
@@ -69,32 +67,50 @@ Business knowledge:
 
 Your personality:
 - elegant
-- calm
-- intelligent
-- premium
 - minimal
+- intelligent
+- calm
+- premium
+- architectural
+
+Communication style:
+- refined
+- concise
+- emotionally intelligent
+- strategic
+- cinematic
 
 User question:
 {request.message}
 """
+
+    def generate():
 
         response = requests.post(
             "http://localhost:11434/api/generate",
             json={
                 "model": "llama3.1:8b",
                 "prompt": prompt,
-                "stream": False
-            }
+                "stream": True
+            },
+            stream=True
         )
 
-        data = response.json()
+        for line in response.iter_lines():
 
-        return {
-            "response": data["response"]
-        }
+            if line:
 
-    except Exception as e:
+                try:
 
-        return {
-            "error": str(e)
-        }
+                    json_data = json.loads(line)
+
+                    if "response" in json_data:
+                        yield json_data["response"]
+
+                except:
+                    pass
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/plain"
+    )
